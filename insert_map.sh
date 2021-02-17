@@ -39,7 +39,7 @@ HELP(){
 	echo
 	echo "optional parameters:"
 	echo "-t, --threads	number of threads to use for alignment, samtools"
-	echo "-e	BLAST e-value (default=1e-70)"
+	echo "-e		BLAST e-value (default=1e-70)"
 	echo "-h, --help	show this help"
 	echo 
 	echo "MAINTENANCE OPTIONS"
