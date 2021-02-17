@@ -21,7 +21,7 @@ set -o pipefail
 INIT=0
 CLEAN=0
 GENOME="/Volumes/rich/SEQUENCING/WBcel235/WBcel235.fa"
-PREFIX="foo"
+PREFIX=
 THREADS=1
 
 #display help
@@ -30,12 +30,14 @@ HELP(){
 	echo
 	echo "FOR MAPPING"
 	echo "syntax: -d WORKING_DIRECTORY -1 READ1 -2 READ2 -g GENOME_FASTA -x PREFIX"
-	echo "options:"
+	echo "required options:"
 	echo "-d, --dir	working directory"
 	echo "-x, --prefix	prefix for files (index, results, etc)"
 	echo "-g, --genome	location of genome FASTA file"
 	echo "-1		location of forward read FASTQ"
 	echo "-2		location of reverse read FASTQ"
+	echo
+	echo "optional parameters:"
 	echo "-t, --threads	number of threads to use for alignment, samtools"
 	echo "-e	BLAST e-value (default=1e-70)"
 	echo "-h, --help	show this help"
@@ -88,12 +90,13 @@ while [ $# -gt 0 ]; do
 			HELP
 			exit;;
 		*)
-            break
-            ;;
+			HELP
+            exit;;
     esac
 done
 
 ARRAY_SEQS_DIR=${WORKING_DIR}/ARRAY_SEQS
+BED_DIR=${WORKING_DIR}/BED_FILES
 _name=${WORKING_DIR}/${PREFIX}
 
 ###MAINTENANCE STUFF
@@ -107,6 +110,7 @@ if (( ${INIT} == 1 )); then
 	fi
 	echo "creating directory structure at ${WORKING_DIR}"
 	mkdir ${ARRAY_SEQS_DIR}
+	mkdir ${BED_DIR}
 	mkdir ${WORKING_DIR}/READS/
 	exit 1
 fi
@@ -120,6 +124,7 @@ if (( ${CLEAN} == 1 )); then
 	rm ${WORKING_DIR}/*.bam*
 	rm ${WORKING_DIR}/*.bt2
 	rm ${ARRAY_SEQS_DIR}*.bed
+	rm ${BED_DIR}/*
 	exit 1
 fi
 
@@ -144,7 +149,7 @@ echo -e "\n"
 
 #first convert files that need to be converted to FASTA
 for seq in ${ARRAY_SEQS_DIR}/*; do
-	python $PWD/convert_to_fasta.py ${seq}
+	python convert_to_fasta.py ${seq}
 done
 
 echo -e "\n"
@@ -164,10 +169,13 @@ for seq in ${ARRAY_SEQS_DIR}/*.fa; do
 #	bioawk -t '{if($9>$10){print $2, $10, $9} else{print $2, $9, $10}}' | \
 #	bedtools sort | bedtools merge | bioawk -t -v sn=${seqname} '{print $0, sn}' > ${ARRAY_SEQS_DIR}/${seqname}.blast.bed 
 
-	./identify_genomic_mappings.sh -g ${GENOME} -s ${seq} -e ${EVALUE} > ${ARRAY_SEQS_DIR}/${seqname}.genomic.bed
+	sh identify_genomic_mappings.sh -g ${GENOME} -s ${seq} -e ${EVALUE} > ${BED_DIR}/${seqname}.genomic.bed
 done
+
 #merge all bed files
-cat ${ARRAY_SEQS_DIR}/*.blast.bed > ${ARRAY_SEQS_DIR}/ARRAY.blast.bed
+#cat ${BED_DIR}/*.genomic.bed > ${BED_DIR}/tmp_all.bed
+#bedtools sort tmp_all.bed | bedtools merge - > ARRAY.genomic.bed
+#rm tmp_all.bed
 
 echo -e "\n"
 echo "######################################"
@@ -175,24 +183,25 @@ echo "ALIGNING TO READS TO GENOME"
 echo "######################################"
 echo -e "\n"
 
+sh align_to_genome_bt2.sh -g ${GENOME} -n ${_name} -t ${THREADS} -1 ${READ1} -2 ${READ2} --array_dir ${ARRAY_SEQS_DIR}
 
 ### create bowtie2-index
-IDX=${GENOME}
-for f in ${ARRAY_SEQS_DIR}/*.fa; do 
-		IDX=${IDX},${f}
-done
+#IDX=${GENOME}
+#for f in ${ARRAY_SEQS_DIR}/*.fa; do 
+#		IDX=${IDX},${f}
+#done
 
-bowtie2-build $IDX ${_name}
+#bowtie2-build $IDX ${_name}
 
-echo -e "\n"
-echo "######################################"
-echo "ALIGNING READS"
-echo "######################################"
-echo -e "\n"
+#echo -e "\n"
+#echo "######################################"
+#echo "ALIGNING READS"
+#echo "######################################"
+#echo -e "\n"
 
 ###align reads and convert to bam
 ### -a finds all alignments, rather than the default (greedy) approach
-bowtie2 -t -k 5 -p ${THREADS} -x ${_name} -1 ${READ1} -2 ${READ2} | samtools view -bS > ${_name}.bam
+#bowtie2 -t -k 5 -p ${THREADS} -x ${_name} -1 ${READ1} -2 ${READ2} | samtools view -bS > ${_name}.bam
 
 echo -e "\n"
 echo "######################################"
@@ -200,11 +209,12 @@ echo "PROCESSING ALIGNED READS"
 echo "######################################"
 echo -e "\n"
 
-###sort, rmdup, and index bam
-samtools collate -O ${_name}.bam | samtools fixmate -m - - | samtools sort - | samtools markdup -s - ${_name}.srt.rmdup.bam
-#samtools sort ${_name}.bam | samtools rmdup - ${_name}.srt.rmdup.bam
-samtools index ${_name}.srt.rmdup.bam ${_name}.srt.rmdup.bam.bai
+sh process_mappings.sh ${_name}.bam
 
+###sort, rmdup, and index bam
+#samtools collate -O ${_name}.bam | samtools fixmate -m - - | samtools sort - | samtools markdup -s - ${_name}.srt.rmdup.bam
+#samtools sort ${_name}.bam | samtools rmdup - ${_name}.srt.rmdup.bam
+#samtools index ${_name}.srt.rmdup.bam ${_name}.srt.rmdup.bam.bai
 
 echo -e "\n"
 echo "######################################"
@@ -212,14 +222,16 @@ echo "IDENTIFYING DISCORDANT READS"
 echo "######################################"
 echo -e "\n"
 
+sh discordant_alignments.sh -b ${_name}.srt.rmdup.bam --dir ${WORKING_DIR}
+
 ###for each chromosome (that's not the worm chromosomes I-V, X, MtDNA)
 ###make a bed file merging all the discordant mappings
-for chr in $(samtools idxstats ${_name}.srt.rmdup.bam | sed \$d | cut -f1); do
-	if [ ${chr} != "I" ] && [ ${chr} != "II" ] && [ ${chr} != "III" ] && [ ${chr} != "IV" ] && [ ${chr} != "V" ] && [ ${chr} != "X" ] && [ ${chr} != "MtDNA" ]; then
-        	echo "finding discordant reads for ${chr}"
-			#idenfity discordant reads, make bed file for positions in genome, merge regions 
-        	samtools view -q 10 ${_name}.srt.rmdup.bam ${chr} | bioawk -csam '{if($rnext != "="){print $rnext, $pnext, $pnext+1}}' | bedtools sort | bedtools merge -d 500 > ${WORKING_DIR}/${chr}.discordant.bed
-			#remove regions for each that map to genome (e.g., Psnt-1, tbb-2UTR, etc...)
-			bedtools subtract -A -a ${WORKING_DIR}/${chr}.discordant.bed -b ${ARRAY_SEQS_DIR}/ARRAY.blast.bed > ${WORKING_DIR}/${chr}.discordant.unique.bed
-	fi
-done
+#for chr in $(samtools idxstats ${_name}.srt.rmdup.bam | sed \$d | cut -f1); do
+#	if [ ${chr} != "I" ] && [ ${chr} != "II" ] && [ ${chr} != "III" ] && [ ${chr} != "IV" ] && [ ${chr} != "V" ] && [ ${chr} != "X" ] && [ ${chr} != "MtDNA" ]; then
+#        	echo "finding discordant reads for ${chr}"
+#			#idenfity discordant reads, make bed file for positions in genome, merge regions 
+#        	samtools view -q 10 ${_name}.srt.rmdup.bam ${chr} | bioawk -csam '{if($rnext != "="){print $rnext, $pnext, $pnext+1}}' | bedtools sort | bedtools merge -d 500 > ${WORKING_DIR}/${chr}.discordant.bed
+#			#remove regions for each that map to genome (e.g., Psnt-1, tbb-2UTR, etc...)
+#			bedtools subtract -A -a ${WORKING_DIR}/${chr}.discordant.bed -b ${ARRAY_SEQS_DIR}/ARRAY.blast.bed > ${WORKING_DIR}/${chr}.discordant.unique.bed
+#	fi
+#done

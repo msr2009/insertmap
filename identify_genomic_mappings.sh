@@ -36,6 +36,9 @@ while [$# -gt 0]; do
 		-h|--help) #HELP!
 			HELP
 			exit;;
+		-*)
+			HELP
+			exit;;
 	esac
 done
 

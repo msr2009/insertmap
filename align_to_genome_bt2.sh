@@ -55,8 +55,8 @@ while [ $# -gt 0 ]; do
 			HELP
 			exit;;
 		*)
-			break
-			;;
+			HELP
+			exit;;
 	esac
 done
 
