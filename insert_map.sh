@@ -1,4 +1,4 @@
-bin/bash
+#!/bin/bash
 set -o nounset
 set -o errexit
 set -o pipefail
@@ -20,9 +20,10 @@ set -o pipefail
 # Default values for blank parameters
 INIT=0
 CLEAN=0
-GENOME="/Volumes/rich/SEQUENCING/WBcel235/WBcel235.fa"
+GENOME=
 PREFIX=
 THREADS=1
+EVALUE=1e-70
 
 #display help
 HELP(){
@@ -46,6 +47,12 @@ HELP(){
 	echo "--init		inititalize directory structure (requires -d)"
 	echo "--clean		clean working directory (requires -d)"	
 }
+
+if [ $# -eq 0 ]
+then
+	HELP
+	exit
+fi	
 
 #PARSE OPTIONS
 while [ $# -gt 0 ]; do
@@ -123,14 +130,56 @@ if (( ${CLEAN} == 1 )); then
 	rm ${WORKING_DIR}/*.bed
 	rm ${WORKING_DIR}/*.bam*
 	rm ${WORKING_DIR}/*.bt2
-	rm ${ARRAY_SEQS_DIR}*.bed
+	rm ${ARRAY_SEQS_DIR}/*.bed
 	rm ${BED_DIR}/*
 	exit 1
 fi
 
-###MAIN SCRIPT	
+#check that required parameters are set
+if [ -z $WORKING_DIR ]
+then
+	echo "ERROR: must set working directory path with -d"
+	echo
+	HELP
+	exit
+fi	
 
-echo -e "\n"
+if [ -z $GENOME ]
+then
+	echo "ERROR: must set path to genome with -g"
+	echo
+	HELP
+	exit
+fi	
+
+if [ -z $PREFIX ]
+then
+	echo "ERROR: must set prefix with -x"
+	echo 
+	HELP
+	exit
+fi	
+
+if [ -z $READ1 ]
+then
+	echo "ERROR: must set read1 path with -1"
+	echo
+	HELP
+	exit
+fi
+
+if [ -z $READ2 ]
+then
+	echo "ERROR: must set read2 path with -2"
+	echo
+	HELP
+	exit
+fi
+
+##############
+###MAIN SCRIPT	
+#############
+echo
 echo "######################################"
 echo NAME: ${PREFIX}
 echo GENOME: ${GENOME}
@@ -139,36 +188,28 @@ echo READ2: ${READ2}
 echo WORKING DIRECTORY: ${WORKING_DIR}
 echo ARRAY SEQS DIRECTORY: ${ARRAY_SEQS_DIR}
 echo "######################################"
-echo -e "\n"
 
-echo -e "\n"
+echo 
 echo "######################################"
 echo "CONVERTING ARRAY SEQUENCE FILES"
 echo "######################################"
-echo -e "\n"
 
 #first convert files that need to be converted to FASTA
 for seq in ${ARRAY_SEQS_DIR}/*; do
 	python convert_to_fasta.py ${seq}
 done
 
-echo -e "\n"
+echo
 echo "######################################"
 echo "IDENTIFY ARRAY SEQ MAPPINGS IN GENOME"
 echo "######################################"
-echo -e "\n"
 
 ### blast against genome db and convert top hits to bed file
 ### blastn finds all "good" matches to genome
 ### bioawk converts blast output to bed file (and orders coords appropriately)
 ### bedtools merges overlapping hits (and sorts)
 for seq in ${ARRAY_SEQS_DIR}/*.fa; do	
-#	seqname=`basename ${seq} .fa`
-#	echo BLASTing ${seqname} against genome
-#	blastn -db ${GENOME} -query ${seq} -evalue 1e-70 -outfmt 6 | \
-#	bioawk -t '{if($9>$10){print $2, $10, $9} else{print $2, $9, $10}}' | \
-#	bedtools sort | bedtools merge | bioawk -t -v sn=${seqname} '{print $0, sn}' > ${ARRAY_SEQS_DIR}/${seqname}.blast.bed 
-
+	seqname=`basename ${seq} .fa`
 	sh identify_genomic_mappings.sh -g ${GENOME} -s ${seq} -e ${EVALUE} > ${BED_DIR}/${seqname}.genomic.bed
 done
 
@@ -177,13 +218,12 @@ done
 #bedtools sort tmp_all.bed | bedtools merge - > ARRAY.genomic.bed
 #rm tmp_all.bed
 
-echo -e "\n"
+echo
 echo "######################################"
 echo "ALIGNING TO READS TO GENOME"
 echo "######################################"
-echo -e "\n"
 
-sh align_to_genome_bt2.sh -g ${GENOME} -n ${_name} -t ${THREADS} -1 ${READ1} -2 ${READ2} --array_dir ${ARRAY_SEQS_DIR}
+sh align_to_genome_bt2.sh -g ${GENOME} -x ${_name} -t ${THREADS} -1 ${READ1} -2 ${READ2} -d ${ARRAY_SEQS_DIR}
 
 ### create bowtie2-index
 #IDX=${GENOME}
@@ -203,24 +243,22 @@ sh align_to_genome_bt2.sh -g ${GENOME} -n ${_name} -t ${THREADS} -1 ${READ1} -2 
 ### -a finds all alignments, rather than the default (greedy) approach
 #bowtie2 -t -k 5 -p ${THREADS} -x ${_name} -1 ${READ1} -2 ${READ2} | samtools view -bS > ${_name}.bam
 
-echo -e "\n"
+echo 
 echo "######################################"
 echo "PROCESSING ALIGNED READS"
 echo "######################################"
-echo -e "\n"
 
-sh process_mappings.sh ${_name}.bam
+sh process_alignment.sh ${_name}.bam
 
 ###sort, rmdup, and index bam
 #samtools collate -O ${_name}.bam | samtools fixmate -m - - | samtools sort - | samtools markdup -s - ${_name}.srt.rmdup.bam
 #samtools sort ${_name}.bam | samtools rmdup - ${_name}.srt.rmdup.bam
 #samtools index ${_name}.srt.rmdup.bam ${_name}.srt.rmdup.bam.bai
 
-echo -e "\n"
+echo
 echo "######################################"
 echo "IDENTIFYING DISCORDANT READS"
 echo "######################################"
-echo -e "\n"
 
 sh discordant_alignments.sh -b ${_name}.srt.rmdup.bam --dir ${WORKING_DIR}
 

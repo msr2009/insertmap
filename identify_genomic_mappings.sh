@@ -19,7 +19,7 @@ HELP(){
 }
 
 #PARSE OPTIONS
-while [$# -gt 0]; do
+while [ $# -gt 0 ]; do
 	case "$1" in
 		-g|--genome)
 			GENOME="$2"
@@ -44,8 +44,8 @@ done
 
 seqname=`basename ${SEQ} .fa`
 
-echo MAPPING ${seqname} against genome
+1>&2 echo MAPPING ${seqname} against genome
 
 blastn -db ${GENOME} -query ${SEQ} -evalue 1e-70 -outfmt 6 | \
-bioawk -t 'if($9>$10){print $2, $10, $9} else{print $2, $9, $10}}' | \
+bioawk -t '{if($9>$10){print $2, $10, $9} else{print $2, $9, $10}}' | \
 bedtools sort | bedtools merge | bioawk -t -v sn=${seqname} '{print $0, sn}'

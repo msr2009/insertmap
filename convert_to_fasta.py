@@ -19,7 +19,6 @@ for f in sys.argv[1:]:
 		seqformat = f.split(".")[-1]
 		path = "/".join(f.split("/")[0:-1])
 
-
 		#create output file name, same as chromosome name
 		#filename is first 16 characters of chromosome, which is how idxstats
 		#outputs the name (this is used late in the pipeline). Unfortunately

@@ -13,7 +13,7 @@ HELP(){
 	echo
 	echo "syntax: align_to_genome.sh -g GENOME -x PREFIX -1 READ1 -2 READ2 --array_dir"
 	echo "-g, --genome	location of genome FASTA"
-	echo "-n, --name	prefix for naming output (should contain full path)"
+	echo "-x, --prefix	prefix for naming output (should contain full path)"
 	echo "-1	location of forward read FASTQ"
 	echo "-2	location of reverse read FASTQ"
 	echo "--array_dir	directory with array sequences"
@@ -31,8 +31,8 @@ while [ $# -gt 0 ]; do
 			GENOME="$2"
 			shift 2
 			;;
-		-n|--name)
-			_name="$2"
+		-x|--prefix)
+			PREFIX="$2"
 			shift 2
 			;;
 		-1) 
@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
 			THREADS="$2"
 			shift 2
 			;;
-		--array_dir)
+		-d|--array_dir)
 			ARRAY_SEQS_DIR="$2"
 			shift 2
 			;;
@@ -60,19 +60,14 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-_name=${ARRAY_SEQS_DIR}/${PREFIX}
-
-###create bowtie2 index
-echo "CREATING BOWTIE2 INDEX"
-
+#create bowtie2 index
 IDX=${GENOME}
 for f in ${ARRAY_SEQS_DIR}/*.fa; do
 	   IDX=${IDX},${f}	
 done
 
-bowtie2-build --threads ${THREADS} $IDX ${_name}
+bowtie2-build --threads ${THREADS} $IDX ${PREFIX}
 
 ###align reads and convert to bam
-echo "ALIGNING READS TO GENOME+ARRAY"
-bowtie2 -t -k 5 -p ${THREADS} -x ${_name} -1 ${READ1} -2 ${READ2} | samtools view -bS > ${_name}.bam
+bowtie2 -t -k 5 -p ${THREADS} -x ${PREFIX} -1 ${READ1} -2 ${READ2} | samtools view -bS > ${PREFIX}.bam
 

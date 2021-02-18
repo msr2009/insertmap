@@ -43,4 +43,4 @@ fi
 
 #then do all the processing	
 samtools collate -O ${_NAME}.bam | samtools fixmate -m - - | samtools sort - | samtools markdup -s - ${_NAME}.srt.rmdup.bam
-
+samtools index ${_NAME}.srt.rmdup.bam ${_NAME}.srt.rmdup.bam.bai
